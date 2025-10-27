@@ -1,6 +1,6 @@
 # GeoDock — Proxy de l’API Adresse
 
-[![proxy-ci](https://github.com/jbjardine/GeoDock/actions/workflows/proxy-ci.yml/badge.svg?branch=proxy-only)](https://github.com/jbjardine/GeoDock/actions/workflows/proxy-ci.yml)
+[![proxy-ci](https://github.com/jbjardine/GeoDock/actions/workflows/proxy-ci.yml/badge.svg?branch=main)](https://github.com/jbjardine/GeoDock/actions/workflows/proxy-ci.yml)
 
 Objectif: exposer en local les mêmes endpoints et schémas que `https://api-adresse.data.gouv.fr` en mode proxy (conformité fonctionnelle), prêt à déployer chez des clients.
 

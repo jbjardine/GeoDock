@@ -85,7 +85,14 @@ jobs:
           files: dist/*.tar.gz
           generate_release_notes: true
           body: |
-            Geodock Proxy ${{ github.ref_name }}
+  GeoDock ${{ github.ref_name }}
+
+  - Default TLS bridge (HTTP clients accepted; proxy -> upstream HTTPS)
+  - Strict parity GET/OPTIONS/CSV vs official API (automated tests)
+  - Cert install script validated (CI + server); sudo or docker group as needed
+  - Tarball ready to deploy (docker-compose.proxy.yml + proxy image)
+  - CI: build + smoke tests + artifacts
+  - Docs: install, certificates, hardening
 
             - TLS bridge par défaut (HTTP clients accepté; proxy → amont en HTTPS)
             - Parité stricte GET/OPTIONS/CSV vs API officielle (tests automatisés)
