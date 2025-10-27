@@ -1,0 +1,20 @@
+# Exclude VCS and editor files
+.git
+.gitignore
+.gitattributes
+.DS_Store
+.vscode
+
+# Exclude any TLS material from build context
+certs/*
+
+# Node/npm/yarn leftovers if any
+node_modules
+npm-debug.log
+yarn.lock
+package-lock.json
+
+# Default ignore for temp files
+*.tmp
+*.swp
+*.bak

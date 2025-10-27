@@ -1,0 +1,95 @@
+name: proxy-ci
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Shellcheck scripts
+        run: |
+          shopt -s nullglob || true
+          shellcheck -x scripts/*.sh || true
+          shellcheck -x proxy/docker-entrypoint.d/*.sh || true
+
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build proxy image
+        run: docker build -t geodock-proxy:ci ./proxy
+      - name: Launch with docker compose (HTTP/TLS bridge)
+        run: |
+          export HOST_PORT_HTTP=8080 HOST_PORT_HTTPS=8443
+          docker compose -f docker-compose.proxy.yml up -d --build proxy
+          # Wait for HTTP health
+          for i in {1..30}; do curl -sS -f http://localhost:8080/_health >/dev/null && break || sleep 2; done
+          curl -sS -f http://localhost:8080/_health | jq . || true
+      - name: Smoke test search (HTTP)
+        run: |
+          curl -sS "http://localhost:8080/search/?q=paris&limit=1" | grep -q '"features"' || (echo "search failed" && exit 1)
+      - name: Generate test certs and install via script
+        run: |
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 -subj "/CN=geodock.intra" \
+            -keyout /tmp/tls.key -out /tmp/tls.crt >/dev/null 2>&1
+          bash scripts/certs_install.sh -c /tmp/tls.crt -k /tmp/tls.key
+      - name: Smoke test health (HTTPS, insecure)
+        run: |
+          for i in {1..20}; do curl -ksSf https://localhost:8443/_health >/dev/null && break || sleep 2; done
+          curl -ksS https://localhost:8443/_health | jq . || true
+      - name: Save built image as artifact (no push)
+        run: |
+          mkdir -p dist
+          docker save geodock-proxy:ci | gzip > dist/geodock-proxy-image.tar.gz
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: geodock-proxy-image
+          path: dist/geodock-proxy-image.tar.gz
+
+  package-release:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create tarball
+        run: bash scripts/release_proxy.sh
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: geodock-proxy-dist
+          path: dist/*.tar.gz
+      - name: Publish GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
+          generate_release_notes: true
+          body: |
+            Geodock Proxy ${{ github.ref_name }}
+
+            - TLS bridge par défaut (HTTP clients accepté; proxy → amont en HTTPS)
+            - Parité stricte GET/OPTIONS/CSV vs API officielle (tests automatisés)
+            - Script `scripts/certs_install.sh` validé (CI + serveur) avec notes permissions (sudo/groupe docker)
+            - Tarball prêt à déployer (docker-compose.proxy.yml + image proxy)
+            - CI GitHub: build + smoke tests + artefacts
+            - Docs: installation, certificats, hardening (FR)

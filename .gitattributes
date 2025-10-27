@@ -1,0 +1,15 @@
+# Normalize line endings to LF in repo
+* text=auto eol=lf
+
+# Shell and Docker files must be LF
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# PowerShell scripts as text (LF to avoid BOM issues in CI)
+*.ps1 text eol=lf
+
+# Mark docs for linguist
+docs/** linguist-documentation
+

@@ -1,0 +1,133 @@
+# Generated from env at container start
+
+# DNS resolver for Docker internal names
+resolver 127.0.0.11 ipv6=off;
+
+# Upstream selection handled per server by environment
+
+server {
+  listen 80 default_server reuseport;
+  server_name ${SERVER_NAME};
+  server_tokens off;
+  client_max_body_size 20m;
+
+  # Local variables allowed in server context
+  set $upstream_host "${UPSTREAM_HOST}";
+  set $mode "${MODE}";
+  set $expose_health_http "${EXPOSE_HEALTH_ON_HTTP}";
+
+  location = /_health {
+    # Optionally expose health over HTTP (default: true). If disabled, redirect to HTTPS.
+    if ($expose_health_http = "true") {
+      add_header Content-Type application/json;
+      return 200 '{"status":"ok","mode":"${MODE}"}';
+    }
+    return 301 https://$host$request_uri;
+  }
+
+  
+
+  # Main API (all routes)
+  location / {
+    # Optional HTTP->HTTPS redirect (controlled via REDIRECT_HTTP_TO_HTTPS)
+    set $redir "${REDIRECT_HTTP_TO_HTTPS}";
+    if ($redir = "true") { return 301 https://$host$request_uri; }
+
+    # CORS preflight
+    if ($request_method = 'OPTIONS') {
+      add_header Access-Control-Allow-Origin *;
+      add_header Access-Control-Allow-Methods "GET, OPTIONS";
+      add_header Access-Control-Allow-Headers "*";
+      return 204;
+    }
+    proxy_http_version 1.1;
+    proxy_set_header Host $upstream_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Avoid content-negotiation influencing CSV routes; let upstream decide
+    proxy_set_header Accept "";
+    # To mirror direct calls to the upstream (which is HTTPS), force X-Forwarded-Proto=https
+    proxy_set_header X-Forwarded-Proto https;
+    # Ensure parity by avoiding cookie-based variance between local and direct calls
+    proxy_set_header Cookie "";
+    proxy_hide_header Set-Cookie;
+    proxy_ssl_server_name on;
+    proxy_ssl_name $upstream_host;
+    proxy_ssl_protocols ${UPSTREAM_SSL_PROTOCOLS};
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+    proxy_connect_timeout 5s;
+
+    add_header Access-Control-Allow-Origin *;
+    add_header Server "" always;
+
+    proxy_intercept_errors on;
+    proxy_pass ${UPSTREAM_BAN}$request_uri;
+    error_page 500 502 503 504 = @remote_fallback;
+  }
+
+  location @remote_fallback { proxy_pass ${UPSTREAM_BAN}$request_uri; }
+}
+
+server {
+  listen 443 ssl default_server reuseport;
+  server_name ${SERVER_NAME};
+  http2 on;
+  server_tokens off;
+  client_max_body_size 20m;
+
+  ssl_certificate     /etc/nginx/certs/tls.crt;
+  ssl_certificate_key /etc/nginx/certs/tls.key;
+  ssl_session_cache   shared:SSL:10m;
+  ssl_session_timeout 10m;
+  ssl_prefer_server_ciphers on;
+  ssl_protocols ${SSL_PROTOCOLS};
+
+  # Local variables allowed in server context
+  set $upstream_host "${UPSTREAM_HOST}";
+  set $mode "${MODE}";
+
+  location = /_health {
+    add_header Content-Type application/json;
+    return 200 '{"status":"ok","mode":"${MODE}"}';
+  }
+
+  
+
+  # Main API (all routes)
+  location / {
+    # CORS preflight
+    if ($request_method = 'OPTIONS') {
+      add_header Access-Control-Allow-Origin *;
+      add_header Access-Control-Allow-Methods "GET, OPTIONS";
+      add_header Access-Control-Allow-Headers "*";
+      return 204;
+    }
+    proxy_http_version 1.1;
+    proxy_set_header Host $upstream_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Avoid content-negotiation influencing CSV routes; let upstream decide
+    proxy_set_header Accept "";
+    # To mirror direct calls to the upstream (which is HTTPS), force X-Forwarded-Proto=https
+    proxy_set_header X-Forwarded-Proto https;
+    # Ensure parity by avoiding cookie-based variance between local and direct calls
+    proxy_set_header Cookie "";
+    proxy_hide_header Set-Cookie;
+    proxy_ssl_server_name on;
+    proxy_ssl_name $upstream_host;
+    proxy_ssl_protocols ${UPSTREAM_SSL_PROTOCOLS};
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+    proxy_connect_timeout 5s;
+
+    add_header Access-Control-Allow-Origin *;
+    add_header Server "" always;
+
+    proxy_intercept_errors on;
+    proxy_pass ${UPSTREAM_BAN}$request_uri;
+    error_page 500 502 503 504 = @remote_fallback;
+  }
+
+  location @remote_fallback { proxy_pass ${UPSTREAM_BAN}$request_uri; }
+}
