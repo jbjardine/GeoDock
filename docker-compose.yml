@@ -1,0 +1,152 @@
+services:
+  proxy:
+    build:
+      context: ./proxy
+    environment:
+      MODE: ${MODE:-hybrid}
+      SERVER_NAME: ${SERVER_NAME:-geodock.intra}
+      UPSTREAM_BAN: ${UPSTREAM_BAN:-https://api-adresse.data.gouv.fr}
+      UPSTREAM_HOST: ${UPSTREAM_HOST:-api-adresse.data.gouv.fr}
+      LOCAL_UPSTREAM: ${LOCAL_UPSTREAM:-http://geocoder-api:3000}
+      UPSTREAM_SSL_PROTOCOLS: ${UPSTREAM_SSL_PROTOCOLS:-TLSv1.3}
+      FALLBACK_ON_404: ${FALLBACK_ON_404:-false}
+      SSL_PROTOCOLS: ${SSL_PROTOCOLS:-TLSv1.2 TLSv1.3}
+      REDIRECT_HTTP_TO_HTTPS: ${REDIRECT_HTTP_TO_HTTPS:-false}
+      EXPOSE_HEALTH_ON_HTTP: ${EXPOSE_HEALTH_ON_HTTP:-true}
+    ports:
+      - "${HOST_PORT_HTTP:-80}:80"
+      - "${HOST_PORT_HTTPS:-443}:443"
+    volumes:
+      - type: bind
+        source: ./proxy/certs
+        target: /etc/nginx/certs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/80 && printf \"GET /_health HTTP/1.0\\r\\n\\r\\n\" >&3 && head -n1 <&3 | grep -q 200'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [geodock]
+
+  geocoder-api:
+    profiles: ["local"]
+    image: geodock/geocodeur:local
+    command: ["yarn", "api:start"]
+    environment:
+      ADDRESS_INDEX_URL: http://geocoder-address:3001
+      PARCEL_INDEX_URL: http://geocoder-parcel:3002
+      POI_INDEX_URL: http://geocoder-poi:3003
+      API_PORT: 3000
+      DATA_PATH: /data
+    depends_on:
+      - geocoder-address
+      - geocoder-parcel
+      - geocoder-poi
+    volumes:
+      - geocoder_data:/data
+    networks: [geodock]
+    restart: unless-stopped
+
+  geocoder-address:
+    profiles: ["local"]
+    image: geodock/geocodeur:local
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        test -f /data/address/index/address.mdb || yarn address:download-index
+        if [ -d /data/address/index/index ]; then
+          cp -a /data/address/index/index/. /data/address/index/
+          rm -rf /data/address/index/index
+        fi
+        exec yarn address:start
+    environment:
+      DATA_PATH: /data
+      ADDRESS_ARCHIVE_URL: ${ADDRESS_ARCHIVE_URL:-}
+      ADDRESS_ARCHIVE_URL_RESOLVER: ${ADDRESS_ARCHIVE_URL_RESOLVER:-}
+      ADDRESS_SERVICE_PORT: 3001
+    volumes:
+      - geocoder_data:/data
+    networks: [geodock]
+    restart: unless-stopped
+
+  geocoder-parcel:
+    profiles: ["local"]
+    image: geodock/geocodeur:local
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        test -f /data/parcel/index/parcel.mdb || yarn parcel:download-index
+        if [ -d /data/parcel/index/index ]; then
+          cp -a /data/parcel/index/index/. /data/parcel/index/
+          rm -rf /data/parcel/index/index
+        fi
+        exec yarn parcel:start
+    environment:
+      DATA_PATH: /data
+      PARCEL_ARCHIVE_URL: ${PARCEL_ARCHIVE_URL:-}
+      PARCEL_ARCHIVE_URL_RESOLVER: ${PARCEL_ARCHIVE_URL_RESOLVER:-}
+      PARCEL_SERVICE_PORT: 3002
+    volumes:
+      - geocoder_data:/data
+    networks: [geodock]
+    restart: unless-stopped
+
+  geocoder-poi:
+    profiles: ["local"]
+    image: geodock/geocodeur:local
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        test -f /data/poi/index/poi.mdb || yarn poi:download-index
+        if [ -d /data/poi/index/index ]; then
+          cp -a /data/poi/index/index/. /data/poi/index/
+          rm -rf /data/poi/index/index
+        fi
+        exec yarn poi:start
+    environment:
+      DATA_PATH: /data
+      POI_ARCHIVE_URL: ${POI_ARCHIVE_URL:-}
+      POI_ARCHIVE_URL_RESOLVER: ${POI_ARCHIVE_URL_RESOLVER:-}
+      POI_SERVICE_PORT: 3003
+      ADDOK_CLUSTER_NUM_NODES: ${POI_ADDOK_CLUSTER_NUM_NODES:-1}
+    volumes:
+      - geocoder_data:/data
+    networks: [geodock]
+    restart: unless-stopped
+
+  updater:
+    profiles: ["ops"]
+    image: alpine:3.20
+    volumes:
+      - ./scripts:/scripts:ro
+      - geocoder_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - UPDATE_SCHEDULE_CRON=${UPDATE_SCHEDULE_CRON:-0 3 * * 1}
+    entrypoint: []
+    command: >-
+      /bin/sh -lc "apk add --no-cache bash curl docker-cli tzdata jq python3;
+      echo \"$${UPDATE_SCHEDULE_CRON} /bin/bash /scripts/update.sh\" > /etc/crontabs/root;
+      crond -f -l 8"
+    networks: [geodock]
+    restart: unless-stopped
+
+  watchtower:
+    profiles: ["ops"]
+    image: containrrr/watchtower:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --cleanup --label-enable --interval ${WATCH_INTERVAL:-3600}
+    restart: unless-stopped
+    networks: [geodock]
+
+volumes:
+  geocoder_data:
+
+networks:
+  geodock:
+    driver: bridge

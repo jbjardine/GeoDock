@@ -2,6 +2,8 @@
 
 Ce guide déploie uniquement le proxy Nginx qui relaie 100 % des requêtes vers l’API officielle. Utile pour valider l’installation et le réseau.
 
+Pour la stack complète avec backend local et les modes `local` / `failback` / `hybrid`, voir `docs/install/unified.md`.
+
 Prérequis: Linux x86_64, Docker Engine + Compose v2
 
 ## Avertissement

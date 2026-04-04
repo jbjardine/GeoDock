@@ -1,0 +1,18 @@
+services:
+  geocoder-api:
+    build:
+      context: .
+      dockerfile: runtime/Dockerfile.gpf-geocodeur
+      args:
+        GEOCODER_GIT_URL: ${GEOCODER_GIT_URL:-https://github.com/Geoplateforme/gpf-geocodeur.git}
+        GEOCODER_GIT_REF: ${GEOCODER_GIT_REF:-main}
+    image: geodock/geocodeur:local
+
+  geocoder-address:
+    image: geodock/geocodeur:local
+
+  geocoder-parcel:
+    image: geodock/geocodeur:local
+
+  geocoder-poi:
+    image: geodock/geocodeur:local
