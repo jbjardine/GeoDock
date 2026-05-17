@@ -1,5 +1,5 @@
 # Pin exact base image digest for reproducibility/security
-FROM nginx:1.25-alpine@sha256:516475cc129da42866742567714ddc681e5eed7b9ee0b9e9c015e464b4221a00
+FROM nginx:1.31-alpine@sha256:dc48b7a872a79fb541ba5081d320b11b549231bc63ba465a7495afaa7d2ebcb8
 
 RUN apk add --no-cache openssl bash
 
