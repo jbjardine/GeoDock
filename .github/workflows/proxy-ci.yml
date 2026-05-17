@@ -98,7 +98,7 @@ jobs:
           mkdir -p dist
           docker save geodock-proxy:ci | gzip > dist/geodock-proxy-image.tar.gz
       - name: Upload image artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: geodock-proxy-image
           path: dist/geodock-proxy-image.tar.gz
@@ -124,7 +124,7 @@ jobs:
       - name: Create release tarball
         run: bash scripts/release_v2.sh
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: geodock-release-dist
           path: dist/*.tar.gz
