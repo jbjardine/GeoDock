@@ -1,60 +1,111 @@
-# GeoDock — Proxy de l’API Adresse
+# GeoDock V2
 
-[![proxy-ci](https://github.com/jbjardine/GeoDock/actions/workflows/proxy-ci.yml/badge.svg?branch=main)](https://github.com/jbjardine/GeoDock/actions/workflows/proxy-ci.yml)
+GeoDock V2 expose une API locale compatible avec `https://api-adresse.data.gouv.fr`.
+Le paquet fournit le proxy, le runtime local, le bootstrap des index, le suivi
+d'etat et les scripts d'exploitation.
 
-Objectif: exposer en local les mêmes endpoints et schémas que `https://api-adresse.data.gouv.fr` en mode proxy (conformité fonctionnelle), prêt à déployer chez des clients.
+Modes officiels :
 
-## Prérequis
-- Docker + Docker Compose
-- Plateforme: Linux x86_64 pour la production (recommandé). Windows possible pour dev/tests via Docker Desktop, à éviter en production; préférer un serveur Linux ou une VM/WSL2.
-- DNS/hosts: faire résoudre `GeoDock.intra` (ou un FQDN interne) vers l’hôte Docker (ou utiliser l’IP pour tester).
+- `proxy` : toutes les requetes passent par l'API officielle.
+- `local` : toutes les requetes passent par le backend local.
+- `hybrid` : le local est prioritaire, avec repli distant si le local n'est pas pret.
+- `failback` : le distant est prioritaire, avec repli local si l'amont echoue.
 
-## Démarrage rapide (mode proxy)
-- Diagnostic: `bash scripts/doctor.sh`
-- Démarrer le proxy: `bash scripts/proxy_up.sh`
-- Vérifier: `bash scripts/proxy_verify.sh`
-  - Mode par défaut: TLS bridge (HTTP accepté, proxy → amont en HTTPS).
-  - Redirection HTTP→HTTPS désactivée par défaut (`REDIRECT_HTTP_TO_HTTPS=false`).
-  - Option: exposer/masquer `/_health` en HTTP via `EXPOSE_HEALTH_ON_HTTP=true|false` (false = 100 % HTTPS).
-  - Parité rapide vs officiel: `BASE=http://localhost REMOTE_BASE=https://api-adresse.data.gouv.fr python3 scripts/parity_check.py`
+## Prerequis
 
-Guide détaillé: voir `docs/install/proxy.md`.
+- Linux x86_64 recommande pour la production.
+- Docker Engine avec Docker Compose v2.
+- Acces reseau sortant vers les sources publiques utilisees par le bootstrap local.
+- En production, un FQDN interne stable, par exemple `geodock.intra`.
+
+L'utilisateur doit pouvoir executer Docker. Utiliser `sudo`, ou ajouter
+l'utilisateur au groupe `docker` selon la politique de la machine.
+
+## Demarrage rapide
+
+```bash
+bash scripts/doctor.sh
+bash scripts/geodock_up.sh
+```
+
+Le script guide les choix utiles :
+
+- mode `proxy`, `local`, `hybrid` ou `failback`;
+- nom d'hote / FQDN;
+- portee locale : departements choisis ou France entiere;
+- liste des departements si necessaire;
+- mise a jour locale automatique hebdomadaire.
+
+Verifier ensuite :
+
+```bash
+bash scripts/geodock_status.sh
+bash scripts/geodock_verify.sh
+```
 
 ## Fonctionnement
-- Le serveur relaie 100 % des requêtes vers l’API officielle (mode proxy).
 
-## TLS et ports
-- Le proxy expose HTTP:80 et HTTPS:443 en parallèle (mappage configurable via `.env`).
-- `SERVER_NAME` pilote le nom du certificat. Sans certificat monté, un certificat auto‑signé est généré (tests). En production, monter un certificat interne.
-- Protocoles: `TLSv1.2 TLSv1.3` (modifiable via `SSL_PROTOCOLS`).
+La stack expose par defaut :
 
-### Monter un certificat
-- Placer `proxy/certs/tls.crt` et `proxy/certs/tls.key` (montés en lecture seule dans le conteneur).
-- Redémarrer le proxy: `docker compose restart proxy`.
-- Le certificat doit couvrir `SERVER_NAME` (ex: GeoDock.intra).
+- HTTP : port `80`;
+- HTTPS : port `443`;
+- healthcheck : `/_health`;
+- statut detaille : `/_status`.
 
-## Release
-- Générer un tarball: `bash scripts/release_proxy.sh`
-- Sortie: `dist/GeoDock-proxy-<timestamp>.tar.gz`.
-- Dernière release: https://github.com/jbjardine/GeoDock/releases/latest
+Les ports peuvent etre changes avec `HOST_PORT_HTTP` et `HOST_PORT_HTTPS`.
+Les certificats se placent dans `proxy/certs/tls.crt` et
+`proxy/certs/tls.key`. Si aucun certificat n'est fourni, le conteneur proxy
+genere un certificat auto-signe.
 
-## Installation (tarball)
-- Copier l’archive sur le serveur Linux x86_64.
-- Extraire: `tar -xzf GeoDock-proxy-*.tar.gz`
-- Démarrer: `docker compose -f docker-compose.proxy.yml up -d --build proxy`
-- Vérifier: `curl -sS http://localhost/_health`
+Le statut JSON indique le mode actif, l'upstream utilise, la disponibilite de
+`address`, `parcel`, `poi` et `api`, l'etape courante et la progression.
 
-## Qualité
-- Lint shell en CI (shellcheck). Les hooks pre-commit et Dependabot sont fournis à titre optionnel; aucune action n’est requise pour déployer.
+## Configuration
 
-## Feuille de route (à venir)
-- Mode “réplique locale” avec bascule/fail‑back vers l’API officielle.
-- Outillage d’observabilité (journaux et métriques) optionnel.
+Les exemples publics sont :
+
+- `.env.example` pour GeoDock V2 complet;
+- `.env.proxy.example` pour le proxy seul.
+
+Ne jamais commiter `.env`, certificats prives, cles ou artefacts de
+qualification. Ils sont ignores par defaut.
+
+Variables principales :
+
+- `MODE=proxy|local|hybrid|failback`
+- `SERVER_NAME=geodock.intra`
+- `LOCAL_SCOPE=departements|france`
+- `LOCAL_DEPARTEMENTS=75,92,93,94`
+- `LOCAL_AUTO_UPDATE=true|false`
+- `LOCAL_UPDATE_SCHEDULE_CRON=0 3 * * 1`
+- `GEODOCK_USE_GHCR=true|false`
+
+## Commandes
+
+- Installation / premier demarrage : `bash scripts/geodock_up.sh`
+- Statut : `bash scripts/geodock_status.sh`
+- Verification : `bash scripts/geodock_verify.sh`
+- Reconfiguration : `bash scripts/geodock_reconfigure.sh`
+- Mise a jour locale immediate : `bash scripts/geodock_update_now.sh`
+- Arret : `bash scripts/stack_stop.sh --down`
+- Package V2 : `bash scripts/release_v2.sh`
+
+## Documentation
+
+- Installation complete : `docs/install/unified.md`
+- Proxy seul : `docs/install/proxy.md`
+- Qualification V2 : `docs/ops/v2-qualification.md`
+- Certificats : `docs/ops/certificates.md`
+- Durcissement : `docs/ops/hardening.md`
+
+## Qualification
+
+La CI publique valide la syntaxe YAML/shell/Python, les tests QA cibles,
+la configuration Compose, le build proxy, le smoke HTTP/HTTPS et le package V2.
+
+Le gate long prod-like, le restart Docker root-level et le reboot hote restent
+des validations operateur documentees dans `docs/ops/v2-qualification.md`.
 
 ## Licence
-- MIT — voir le fichier `LICENSE`.
 
-## Attributions
-- Ce projet agit comme un proxy de l’API Adresse officielle: `https://api-adresse.data.gouv.fr`.
-- Les dénominations et marques citées appartiennent à leurs propriétaires.
-- Non‑affiliation: GeoDock est un projet tiers, non affilié, validé ou sponsorisé par Etalab, La Poste, l’IGN ou tout autre organisme. Il consomme uniquement l’API publique et ne modifie pas les données.
+MIT - voir `LICENSE`.

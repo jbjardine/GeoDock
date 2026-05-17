@@ -1,0 +1,17 @@
+dist/
+var/
+qa-artifacts/
+
+.env
+.env.*
+!.env.example
+!.env.proxy.example
+
+__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+
+proxy/certs/*.crt
+proxy/certs/*.key
+!proxy/certs/.gitkeep

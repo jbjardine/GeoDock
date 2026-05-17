@@ -10,27 +10,45 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint-shell:
+  static-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - name: Shellcheck scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install static check dependencies
         run: |
-          shopt -s nullglob || true
-          shellcheck -x scripts/*.sh || true
-          shellcheck -x proxy/docker-entrypoint.d/*.sh || true
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          python -m pip install --disable-pip-version-check PyYAML
+      - name: Validate workflow YAML
+        run: python -c "import yaml; yaml.safe_load(open('.github/workflows/proxy-ci.yml', encoding='utf-8'))"
+      - name: Validate shell syntax
+        run: bash -n scripts/*.sh proxy/docker-entrypoint.d/*.sh proxy/docker-entrypoint.d/*.envsh tests/*.sh
+      - name: Shellcheck scripts strictly
+        run: shellcheck -x -e SC1091 scripts/*.sh proxy/docker-entrypoint.d/*.sh proxy/docker-entrypoint.d/*.envsh tests/*.sh
+      - name: Compile Python sources
+        run: python -m py_compile builder/*.py runtime/scripts/*.py scripts/*.py
+      - name: Run targeted QA contract tests
+        run: |
+          bash tests/test_qa_memory_stability.sh
+          bash tests/test_qa_reboot_prepares_stack.sh
+      - name: Validate Compose files
+        run: |
+          docker compose -f docker-compose.proxy.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.git.yml --profile local config --quiet
 
-  build-and-smoke:
+  proxy-smoke:
     runs-on: ubuntu-latest
+    needs: static-checks
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -41,7 +59,6 @@ jobs:
         run: |
           export HOST_PORT_HTTP=8080 HOST_PORT_HTTPS=8443
           docker compose -f docker-compose.proxy.yml up -d --build proxy
-          # Wait for HTTP health
           for i in {1..30}; do curl -sS -f http://localhost:8080/_health >/dev/null && break || sleep 2; done
           curl -sS -f http://localhost:8080/_health | jq . || true
       - name: Smoke test search (HTTP)
@@ -65,18 +82,24 @@ jobs:
         with:
           name: geodock-proxy-image
           path: dist/geodock-proxy-image.tar.gz
+      - name: Cleanup compose stack
+        if: always()
+        run: docker compose -f docker-compose.proxy.yml down -v || true
 
   package-release:
     runs-on: ubuntu-latest
+    needs: [static-checks, proxy-smoke]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Create tarball
-        run: bash scripts/release_proxy.sh
+      - name: Create V2 tarball
+        run: bash scripts/release_v2.sh
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: geodock-proxy-dist
+          name: geodock-v2-dist
           path: dist/*.tar.gz
       - name: Publish GitHub Release (on tag)
         if: startsWith(github.ref, 'refs/tags/')
@@ -85,18 +108,9 @@ jobs:
           files: dist/*.tar.gz
           generate_release_notes: true
           body: |
-  GeoDock ${{ github.ref_name }}
+            GeoDock ${{ github.ref_name }}
 
-  - Default TLS bridge (HTTP clients accepted; proxy -> upstream HTTPS)
-  - Strict parity GET/OPTIONS/CSV vs official API (automated tests)
-  - Cert install script validated (CI + server); sudo or docker group as needed
-  - Tarball ready to deploy (docker-compose.proxy.yml + proxy image)
-  - CI: build + smoke tests + artifacts
-  - Docs: install, certificates, hardening
-
-            - TLS bridge par défaut (HTTP clients accepté; proxy → amont en HTTPS)
-            - Parité stricte GET/OPTIONS/CSV vs API officielle (tests automatisés)
-            - Script `scripts/certs_install.sh` validé (CI + serveur) avec notes permissions (sudo/groupe docker)
-            - Tarball prêt à déployer (docker-compose.proxy.yml + image proxy)
-            - CI GitHub: build + smoke tests + artefacts
-            - Docs: installation, certificats, hardening (FR)
+            - Unified V2 package: proxy, local runtime, bootstrap, status, and QA scripts.
+            - Modes: proxy, local, hybrid, failback.
+            - Public CI: YAML, shell, Python, Compose, proxy smoke, and V2 package checks.
+            - Long prod-like gate remains documented as an operator-run qualification.
