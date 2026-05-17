@@ -1,5 +1,11 @@
 # GeoDock V2
 
+[![CI](https://github.com/jbjardine/GeoDock/actions/workflows/proxy-ci.yml/badge.svg?branch=main)](https://github.com/jbjardine/GeoDock/actions/workflows/proxy-ci.yml)
+[![Release](https://img.shields.io/github/v/release/jbjardine/GeoDock?sort=semver)](https://github.com/jbjardine/GeoDock/releases/latest)
+[![License](https://img.shields.io/github/license/jbjardine/GeoDock)](LICENSE)
+[![GHCR proxy](https://img.shields.io/badge/GHCR-geodock--proxy-2496ED?logo=docker&logoColor=white)](https://github.com/users/jbjardine/packages/container/package/geodock-proxy)
+[![GHCR runtime](https://img.shields.io/badge/GHCR-geodock--runtime-2496ED?logo=docker&logoColor=white)](https://github.com/users/jbjardine/packages/container/package/geodock-runtime)
+
 GeoDock V2 expose une API locale compatible avec `https://api-adresse.data.gouv.fr`.
 Le paquet fournit le proxy, le runtime local, le bootstrap des index, le suivi
 d'etat et les scripts d'exploitation.
