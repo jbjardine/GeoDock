@@ -18,7 +18,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from resolver import (
     bdtopo_template,
@@ -426,6 +426,19 @@ def load_state(path: Path) -> dict[str, str]:
         return {}
 
 
+def manifest_entry_error(theme: str, manifest_theme: dict[str, Any]) -> str | None:
+    if manifest_theme.get("error"):
+        return f"Manifest theme '{theme}' is in error: {manifest_theme.get('error')}"
+    sources = manifest_theme.get("sources")
+    if isinstance(sources, list):
+        for entry in sources:
+            if isinstance(entry, dict) and entry.get("error"):
+                dep = entry.get("departement") or "global"
+                kind = entry.get("kind") or entry.get("theme") or "source"
+                return f"Manifest source '{theme}/{kind}/{dep}' is in error: {entry.get('error')}"
+    return None
+
+
 def save_state(path: Path, data: dict[str, str]) -> None:
     ensure_directory(path.parent)
     tmp = path.with_suffix(".tmp")
@@ -720,9 +733,14 @@ def main() -> None:
     for theme in themes:
         manifest_theme = None
         if precomputed_manifest:
-            manifest_theme = precomputed_manifest.get("themes", {}).get(theme)
+            candidate = precomputed_manifest.get("themes", {}).get(theme)
+            if isinstance(candidate, dict):
+                manifest_theme = candidate
         try:
-            if manifest_theme:
+            if manifest_theme is not None:
+                entry_error = manifest_entry_error(theme, manifest_theme)
+                if entry_error:
+                    raise RuntimeError(entry_error)
                 # Éviter toute résolution réseau si un manifest est fourni
                 log(f"Manifest trouvé pour '{theme}': utilisation des URIs pré-calculées.")
                 sources, env, departments, crs = [], {}, [], None
@@ -740,7 +758,7 @@ def main() -> None:
                 raise
             else:
                 continue
-        if manifest_theme:
+        if manifest_theme is not None:
             manifest_sources = manifest_theme.get("sources")
             if isinstance(manifest_sources, list):
                 override_sources: list[Source] = []

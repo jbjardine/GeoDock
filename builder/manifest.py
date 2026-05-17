@@ -15,7 +15,6 @@ import urllib.request
 
 from entrypoint import (
     DEFAULT_THEMES,
-    compute_signature,
     head_signature,
     prepare_theme,
 )
@@ -157,6 +156,24 @@ def _signature(block: dict[str, Any]) -> str:
         block.get("updated") or "",
         block.get("url") or "",
     ])
+
+
+def compute_manifest_signature(sources: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for entry in sources:
+        if not isinstance(entry, dict):
+            continue
+        current = entry.get("current") if isinstance(entry.get("current"), dict) else entry
+        parts.append(":".join([
+            str(entry.get("kind") or entry.get("theme") or "manifest"),
+            str(entry.get("departement") or ""),
+            str(current.get("etag") or ""),
+            str(current.get("updated") or ""),
+            str(current.get("url") or ""),
+            str(current.get("local_url") or entry.get("local_url") or ""),
+            str(current.get("error") or entry.get("error") or ""),
+        ]))
+    return "|".join(parts)
 
 
 def merge_previous_sources(
@@ -489,7 +506,6 @@ def compute_manifest() -> dict[str, Any]:
         departements = resolve_departements(theme, departments_env)
         log(f"{theme}: {len(departements)} département(s) ciblé(s)")
         theme_entry: dict[str, Any] = {
-            "signature": compute_signature(sources),
             "departements": departements,
             "crs": crs,
             "sources": [],
@@ -511,6 +527,7 @@ def compute_manifest() -> dict[str, Any]:
         else:
             theme_entry["sources"] = []
 
+        theme_entry["signature"] = compute_manifest_signature(theme_entry["sources"])
         manifest["themes"][theme] = theme_entry
 
     return manifest

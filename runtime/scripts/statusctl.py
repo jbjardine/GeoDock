@@ -15,6 +15,7 @@ from typing import Any
 STATUS_PATH = Path(os.getenv("GEODOCK_STATUS_FILE", os.getenv("GEODOCK_META_DIR", "/meta") + "/status.json"))
 LOCK_PATH = STATUS_PATH.with_suffix(".lock")
 DEFAULT_COMPONENTS = ("address", "parcel", "poi", "api")
+REFRESH_STATES = {"updating", "building"}
 
 
 def now_iso() -> str:
@@ -104,7 +105,8 @@ def finalize_status(status: dict[str, Any]) -> dict[str, Any]:
     mode = str(status.get("mode") or "proxy")
     status["upstream_active"] = derive_upstream(mode, api_ready)
     if status.get("local_enabled"):
-        if all(bool(ready.get(name)) for name in DEFAULT_COMPONENTS) and status.get("state") not in {"error", "degraded"}:
+        current_state = str(status.get("state") or "")
+        if all(bool(ready.get(name)) for name in DEFAULT_COMPONENTS) and current_state not in {"error", "degraded"} | REFRESH_STATES:
             status["state"] = "ready"
             status["current_step"] = "GeoDock est pret"
             if not status.get("last_successful_update_at"):

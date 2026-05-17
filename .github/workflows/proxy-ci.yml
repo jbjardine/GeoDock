@@ -39,6 +39,7 @@ jobs:
         run: python -m py_compile builder/*.py runtime/scripts/*.py scripts/*.py
       - name: Run targeted QA contract tests
         run: |
+          python tests/test_public_release_regressions.py
           bash tests/test_qa_memory_stability.sh
           bash tests/test_qa_reboot_prepares_stack.sh
       - name: Validate Compose files

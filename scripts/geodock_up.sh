@@ -162,7 +162,7 @@ use_ghcr_default="$(get_env GEODOCK_USE_GHCR)"
 use_ghcr_default="${use_ghcr_default:-true}"
 
 if [ "$mode" != "proxy" ] && [ "$mode" != "remote" ]; then
-  local_source="${LOCAL_SOURCE_OVERRIDE:-build}"
+  local_source="${LOCAL_SOURCE_OVERRIDE:-$local_source}"
   scope_answer="${SCOPE_OVERRIDE:-$local_scope}"
   if [ "$NON_INTERACTIVE" -ne 1 ] && [ -z "$SCOPE_OVERRIDE" ]; then
     scope_answer="$(prompt_default 'Portee locale (departements/france)' "$local_scope")"
@@ -200,6 +200,12 @@ set_env LOCAL_SCOPE "${local_scope:-departements}"
 set_env LOCAL_DEPARTEMENTS "${local_departements:-}"
 set_env LOCAL_AUTO_UPDATE "${local_auto_update:-true}"
 set_env LOCAL_BOOTSTRAP_TIMEOUT "${LOCAL_BOOTSTRAP_TIMEOUT:-86400}"
+
+if [ "$mode" = "proxy" ] || [ "$mode" = "remote" ]; then
+  docker compose -f docker-compose.yml -f docker-compose.git.yml --profile local stop \
+    local-maintainer geocoder-api geocoder-address geocoder-parcel geocoder-poi local-bootstrap \
+    >/dev/null 2>&1 || true
+fi
 
 if ! grep -q '^LOCAL_UPDATE_SCHEDULE_CRON=' .env; then
   printf '%s=%s\n' "LOCAL_UPDATE_SCHEDULE_CRON" "0 3 * * 1" >> .env
