@@ -1,0 +1,216 @@
+services:
+  proxy:
+    image: ${GEODOCK_PROXY_IMAGE:-ghcr.io/jbjardine/geodock-proxy:latest}
+    build:
+      context: ./proxy
+    environment:
+      MODE: ${MODE:-hybrid}
+      SERVER_NAME: ${SERVER_NAME:-geodock.intra}
+      UPSTREAM_BAN: ${UPSTREAM_BAN:-https://api-adresse.data.gouv.fr}
+      UPSTREAM_HOST: ${UPSTREAM_HOST:-api-adresse.data.gouv.fr}
+      LOCAL_UPSTREAM: ${LOCAL_UPSTREAM:-http://geocoder-api:3000}
+      UPSTREAM_SSL_PROTOCOLS: ${UPSTREAM_SSL_PROTOCOLS:-TLSv1.3}
+      FALLBACK_ON_404: ${FALLBACK_ON_404:-false}
+      SSL_PROTOCOLS: ${SSL_PROTOCOLS:-TLSv1.2 TLSv1.3}
+      REDIRECT_HTTP_TO_HTTPS: ${REDIRECT_HTTP_TO_HTTPS:-false}
+      EXPOSE_HEALTH_ON_HTTP: ${EXPOSE_HEALTH_ON_HTTP:-true}
+    ports:
+      - "${HOST_PORT_HTTP:-80}:80"
+      - "${HOST_PORT_HTTPS:-443}:443"
+    volumes:
+      - type: bind
+        source: ./proxy/certs
+        target: /etc/nginx/certs
+      - type: bind
+        source: ./var/meta
+        target: /var/lib/geodock
+        read_only: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/80 && printf \"GET /_health HTTP/1.0\\r\\n\\r\\n\" >&3 && head -n1 <&3 | grep -q 200'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [geodock]
+
+  local-bootstrap:
+    profiles: ["local"]
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+    command: ["python", "/opt/geodock-runtime/scripts/local_maintainer.py", "bootstrap"]
+    environment:
+      MODE: ${MODE:-hybrid}
+      LOCAL_SOURCE: ${LOCAL_SOURCE:-build}
+      LOCAL_SCOPE: ${LOCAL_SCOPE:-departements}
+      LOCAL_DEPARTEMENTS: ${LOCAL_DEPARTEMENTS:-}
+      LOCAL_BOOTSTRAP_TIMEOUT: ${LOCAL_BOOTSTRAP_TIMEOUT:-86400}
+      DATA_PATH: /data
+      OUTPUT_DIR: /artifacts
+      GEODOCK_META_DIR: /meta
+      POI_ADDOK_CLUSTER_NUM_NODES: ${POI_ADDOK_CLUSTER_NUM_NODES:-1}
+    volumes:
+      - geocoder_data:/data
+      - type: bind
+        source: ./var/meta
+        target: /meta
+      - type: bind
+        source: ./var/artifacts
+        target: /artifacts
+    networks: [geodock]
+
+  geocoder-address:
+    profiles: ["local"]
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+    command: ["bash", "/opt/geodock-runtime/scripts/start_service.sh", "address"]
+    environment:
+      MODE: ${MODE:-hybrid}
+      LOCAL_SOURCE: ${LOCAL_SOURCE:-build}
+      LOCAL_BOOTSTRAP_TIMEOUT: ${LOCAL_BOOTSTRAP_TIMEOUT:-86400}
+      DATA_PATH: /data
+      ADDRESS_ARCHIVE_URL: ${ADDRESS_ARCHIVE_URL:-}
+      ADDRESS_ARCHIVE_URL_RESOLVER: ${ADDRESS_ARCHIVE_URL_RESOLVER:-}
+      ADDRESS_SERVICE_PORT: 3001
+    depends_on:
+      local-bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - geocoder_data:/data
+      - type: bind
+        source: ./var/meta
+        target: /meta
+      - type: bind
+        source: ./var/artifacts
+        target: /artifacts
+    networks: [geodock]
+    restart: unless-stopped
+
+  geocoder-parcel:
+    profiles: ["local"]
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+    command: ["bash", "/opt/geodock-runtime/scripts/start_service.sh", "parcel"]
+    environment:
+      MODE: ${MODE:-hybrid}
+      LOCAL_SOURCE: ${LOCAL_SOURCE:-build}
+      LOCAL_BOOTSTRAP_TIMEOUT: ${LOCAL_BOOTSTRAP_TIMEOUT:-86400}
+      DATA_PATH: /data
+      PARCEL_ARCHIVE_URL: ${PARCEL_ARCHIVE_URL:-}
+      PARCEL_ARCHIVE_URL_RESOLVER: ${PARCEL_ARCHIVE_URL_RESOLVER:-}
+      PARCEL_SERVICE_PORT: 3002
+    depends_on:
+      local-bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - geocoder_data:/data
+      - type: bind
+        source: ./var/meta
+        target: /meta
+      - type: bind
+        source: ./var/artifacts
+        target: /artifacts
+    networks: [geodock]
+    restart: unless-stopped
+
+  geocoder-poi:
+    profiles: ["local"]
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+    command: ["bash", "/opt/geodock-runtime/scripts/start_service.sh", "poi"]
+    environment:
+      MODE: ${MODE:-hybrid}
+      LOCAL_SOURCE: ${LOCAL_SOURCE:-build}
+      LOCAL_BOOTSTRAP_TIMEOUT: ${LOCAL_BOOTSTRAP_TIMEOUT:-86400}
+      DATA_PATH: /data
+      POI_ARCHIVE_URL: ${POI_ARCHIVE_URL:-}
+      POI_ARCHIVE_URL_RESOLVER: ${POI_ARCHIVE_URL_RESOLVER:-}
+      POI_SERVICE_PORT: 3003
+      ADDOK_CLUSTER_NUM_NODES: ${POI_ADDOK_CLUSTER_NUM_NODES:-1}
+    depends_on:
+      local-bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - geocoder_data:/data
+      - type: bind
+        source: ./var/meta
+        target: /meta
+      - type: bind
+        source: ./var/artifacts
+        target: /artifacts
+    networks: [geodock]
+    restart: unless-stopped
+
+  geocoder-api:
+    profiles: ["local"]
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+    command: ["bash", "/opt/geodock-runtime/scripts/start_service.sh", "api"]
+    environment:
+      MODE: ${MODE:-hybrid}
+      LOCAL_SOURCE: ${LOCAL_SOURCE:-build}
+      LOCAL_BOOTSTRAP_TIMEOUT: ${LOCAL_BOOTSTRAP_TIMEOUT:-86400}
+      ADDRESS_INDEX_URL: http://geocoder-address:3001
+      PARCEL_INDEX_URL: http://geocoder-parcel:3002
+      POI_INDEX_URL: http://geocoder-poi:3003
+      API_PORT: 3000
+      DATA_PATH: /data
+    depends_on:
+      geocoder-address:
+        condition: service_started
+      geocoder-parcel:
+        condition: service_started
+      geocoder-poi:
+        condition: service_started
+    volumes:
+      - geocoder_data:/data
+      - type: bind
+        source: ./var/meta
+        target: /meta
+      - type: bind
+        source: ./var/artifacts
+        target: /artifacts
+    networks: [geodock]
+    restart: unless-stopped
+
+  local-maintainer:
+    profiles: ["local"]
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+    command: ["python", "/opt/geodock-runtime/scripts/local_maintainer.py", "refresh-loop"]
+    environment:
+      MODE: ${MODE:-hybrid}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-geodock}
+      LOCAL_SOURCE: ${LOCAL_SOURCE:-build}
+      LOCAL_SCOPE: ${LOCAL_SCOPE:-departements}
+      LOCAL_DEPARTEMENTS: ${LOCAL_DEPARTEMENTS:-}
+      LOCAL_AUTO_UPDATE: ${LOCAL_AUTO_UPDATE:-true}
+      LOCAL_UPDATE_SCHEDULE_CRON: ${LOCAL_UPDATE_SCHEDULE_CRON:-0 3 * * 1}
+      DATA_PATH: /data
+      OUTPUT_DIR: /artifacts
+      GEODOCK_META_DIR: /meta
+      POI_ADDOK_CLUSTER_NUM_NODES: ${POI_ADDOK_CLUSTER_NUM_NODES:-1}
+    depends_on:
+      geocoder-api:
+        condition: service_started
+    volumes:
+      - geocoder_data:/data
+      - type: bind
+        source: ./var/meta
+        target: /meta
+      - type: bind
+        source: ./var/artifacts
+        target: /artifacts
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [geodock]
+    restart: unless-stopped
+
+  watchtower:
+    profiles: ["ops"]
+    image: containrrr/watchtower:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --cleanup --label-enable --interval ${WATCH_INTERVAL:-3600}
+    restart: unless-stopped
+    networks: [geodock]
+
+volumes:
+  geocoder_data:
+
+networks:
+  geodock:
+    driver: bridge

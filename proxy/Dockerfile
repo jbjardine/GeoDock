@@ -16,10 +16,10 @@ ENV LC_ALL=C.UTF-8
 RUN mkdir -p /etc/nginx/templates /etc/nginx/includes /etc/nginx/certs /docker-entrypoint.d
 
 COPY default.conf.template /etc/nginx/templates/default.conf.template
-COPY docker-entrypoint.d/18-mode-env.sh /docker-entrypoint.d/18-mode-env.sh
+COPY docker-entrypoint.d/18-mode-env.envsh /docker-entrypoint.d/18-mode-env.envsh
 COPY docker-entrypoint.d/20-generate-self-signed.sh /docker-entrypoint.d/20-generate-self-signed.sh
 # Normalize line endings from Windows to Unix
-RUN sed -i 's/\r$//' /docker-entrypoint.d/18-mode-env.sh /docker-entrypoint.d/20-generate-self-signed.sh \
-    && chmod +x /docker-entrypoint.d/18-mode-env.sh /docker-entrypoint.d/20-generate-self-signed.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.d/18-mode-env.envsh /docker-entrypoint.d/20-generate-self-signed.sh \
+    && chmod +x /docker-entrypoint.d/18-mode-env.envsh /docker-entrypoint.d/20-generate-self-signed.sh
 
 EXPOSE 80 443

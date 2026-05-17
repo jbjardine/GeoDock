@@ -1,0 +1,69 @@
+#!/bin/sh
+set -e
+
+if [ -z "${SSL_PROTOCOLS:-}" ]; then
+  export SSL_PROTOCOLS='TLSv1.2 TLSv1.3'
+fi
+
+if [ -z "${EXPOSE_HEALTH_ON_HTTP:-}" ]; then
+  export EXPOSE_HEALTH_ON_HTTP='true'
+fi
+
+strip_cr() { printf '%s' "$1" | tr -d '\r'; }
+MODE="$(strip_cr "${MODE:-remote}")"
+SERVER_NAME="$(strip_cr "${SERVER_NAME:-geodock.intra}")"
+UPSTREAM_BAN="$(strip_cr "${UPSTREAM_BAN:-https://api-adresse.data.gouv.fr}")"
+UPSTREAM_HOST="$(strip_cr "${UPSTREAM_HOST:-api-adresse.data.gouv.fr}")"
+LOCAL_UPSTREAM="$(strip_cr "${LOCAL_UPSTREAM:-http://geocoder-api:3000}")"
+SSL_PROTOCOLS="$(strip_cr "${SSL_PROTOCOLS}")"
+UPSTREAM_SSL_PROTOCOLS="$(strip_cr "${UPSTREAM_SSL_PROTOCOLS:-TLSv1.3}")"
+FALLBACK_ON_404="$(strip_cr "${FALLBACK_ON_404:-false}")"
+REDIRECT_HTTP_TO_HTTPS="$(strip_cr "${REDIRECT_HTTP_TO_HTTPS:-false}")"
+EXPOSE_HEALTH_ON_HTTP="$(strip_cr "${EXPOSE_HEALTH_ON_HTTP:-true}")"
+export MODE SERVER_NAME UPSTREAM_BAN UPSTREAM_HOST LOCAL_UPSTREAM
+export SSL_PROTOCOLS UPSTREAM_SSL_PROTOCOLS FALLBACK_ON_404
+export REDIRECT_HTTP_TO_HTTPS EXPOSE_HEALTH_ON_HTTP
+
+case "${MODE}" in
+  remote|proxy)
+    export PRIMARY_UPSTREAM="${UPSTREAM_BAN}"
+    export PRIMARY_UPSTREAM_LABEL='remote'
+    export FALLBACK_5XX_DIRECTIVE=''
+    export FALLBACK_404_DIRECTIVE=''
+    ;;
+  local)
+    export PRIMARY_UPSTREAM="${LOCAL_UPSTREAM}"
+    export PRIMARY_UPSTREAM_LABEL='local'
+    export FALLBACK_5XX_DIRECTIVE=''
+    export FALLBACK_404_DIRECTIVE=''
+    ;;
+  hybrid)
+    export PRIMARY_UPSTREAM="${LOCAL_UPSTREAM}"
+    export PRIMARY_UPSTREAM_LABEL='local'
+    export FALLBACK_5XX_DIRECTIVE='error_page 500 502 503 504 = @remote_fallback;'
+    if [ "${FALLBACK_ON_404}" = "true" ]; then
+      export FALLBACK_404_DIRECTIVE='error_page 404 = @remote_fallback;'
+    else
+      export FALLBACK_404_DIRECTIVE=''
+    fi
+    ;;
+  failback)
+    export PRIMARY_UPSTREAM="${UPSTREAM_BAN}"
+    export PRIMARY_UPSTREAM_LABEL='remote'
+    export FALLBACK_5XX_DIRECTIVE='error_page 500 502 503 504 = @local_fallback;'
+    if [ "${FALLBACK_ON_404}" = "true" ]; then
+      export FALLBACK_404_DIRECTIVE='error_page 404 = @local_fallback;'
+    else
+      export FALLBACK_404_DIRECTIVE=''
+    fi
+    ;;
+  *)
+    export MODE='remote'
+    export PRIMARY_UPSTREAM="${UPSTREAM_BAN}"
+    export PRIMARY_UPSTREAM_LABEL='remote'
+    export FALLBACK_5XX_DIRECTIVE=''
+    export FALLBACK_404_DIRECTIVE=''
+    ;;
+esac
+
+export NGINX_ENVSUBST_FILTER='^(MODE|SERVER_NAME|UPSTREAM_BAN|UPSTREAM_HOST|LOCAL_UPSTREAM|PRIMARY_UPSTREAM|PRIMARY_UPSTREAM_LABEL|FALLBACK_5XX_DIRECTIVE|FALLBACK_404_DIRECTIVE|SSL_PROTOCOLS|UPSTREAM_SSL_PROTOCOLS|FALLBACK_ON_404|REDIRECT_HTTP_TO_HTTPS|EXPOSE_HEALTH_ON_HTTP)$'

@@ -15,7 +15,9 @@ while getopts ":c:k:" opt; do
   esac
 done
 
-[ -n "$CRT" ] && [ -n "$KEY" ] || usage
+if [ -z "$CRT" ] || [ -z "$KEY" ]; then
+  usage
+fi
 
 if [ ! -f "$CRT" ] || [ ! -f "$KEY" ]; then
   echo "[certs] ERROR: missing files (crt/key)" >&2; exit 1
@@ -68,14 +70,12 @@ fi
 
 # Prefer install inside container if running (avoid host permission/ownership issues)
 cid="$(docker compose -f "$COMPOSE_FILE" ps -q proxy 2>/dev/null || true)"
-reloaded=0
 if [ -n "$cid" ]; then
   echo "[certs] Installing inside container"
   docker exec -i "$cid" /bin/sh -lc 'cat > /etc/nginx/certs/tls.crt' < "$CRT"
   docker exec -i "$cid" /bin/sh -lc 'cat > /etc/nginx/certs/tls.key' < "$KEY"
   docker exec "$cid" /bin/sh -lc 'chmod 600 /etc/nginx/certs/tls.key'
   docker exec "$cid" nginx -s reload || true
-  reloaded=1
 else
   # Container not running: attempt host install, then (re)create service
   echo "[certs] Container not running; installing on host and starting proxy"
@@ -89,7 +89,7 @@ else
 fi
 
 echo "[certs] Checking HTTPS health"
-for i in 1 2 3 4 5; do
+for _ in 1 2 3 4 5; do
   if curl -ksSf https://localhost/_health >/dev/null; then
     echo "[certs] OK: HTTPS endpoint responds"; break
   fi
