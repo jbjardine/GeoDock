@@ -1,63 +1,76 @@
-# Installation — Mode proxy
+# Installation - Mode proxy seul
 
-Ce guide déploie uniquement le proxy Nginx qui relaie 100 % des requêtes vers l’API officielle. Utile pour valider l’installation et le réseau.
+Ce guide deploie uniquement le proxy Nginx. Toutes les requetes sont relayees
+vers l'API officielle, sans backend local ni construction d'index.
 
-Prérequis: Linux x86_64, Docker Engine + Compose v2
+Pour GeoDock V2 complet avec les modes `local`, `hybrid` et `failback`, voir
+`docs/install/unified.md`.
 
-## Avertissement
+## 1. Prerequis
 
-- Droits Docker: exécuter Docker sans `sudo` nécessite que l’utilisateur appartienne au groupe `docker`.
-  - Ajouter: `sudo usermod -aG docker <user>` puis se reconnecter (ou `newgrp docker`).
-  - Sinon, précéder les commandes de `sudo`.
-- Mode par défaut: TLS bridge (HTTP accepté, proxy → amont en HTTPS).
-  - Redirection HTTP→HTTPS: par défaut désactivée (`REDIRECT_HTTP_TO_HTTPS=false`).
-  - Pour une politique 100 % HTTPS, définir `REDIRECT_HTTP_TO_HTTPS=true` et, si souhaité, `EXPOSE_HEALTH_ON_HTTP=false` pour rediriger aussi `/_health`.
+- Linux x86_64.
+- Docker Engine et Docker Compose v2.
+- Droits Docker pour l'utilisateur.
 
-## 1) Diagnostic rapide
+Le proxy expose par defaut les ports `80` et `443`.
+
+## 2. Configuration
+
+Le fichier public de reference est `.env.proxy.example`.
+
+Variables principales :
+
+- `MODE=remote`
+- `SERVER_NAME=geodock.intra`
+- `UPSTREAM_BAN=https://api-adresse.data.gouv.fr`
+- `HOST_PORT_HTTP=80`
+- `HOST_PORT_HTTPS=443`
+- `REDIRECT_HTTP_TO_HTTPS=false`
+- `EXPOSE_HEALTH_ON_HTTP=true`
+
+Le mode par defaut est un pont TLS : HTTP est accepte cote clients, et le proxy
+contacte l'amont officiel en HTTPS.
+
+## 3. Demarrer
 
 ```bash
 bash scripts/doctor.sh
-```
-
-## 2) Démarrer le proxy
-
-```bash
 bash scripts/proxy_up.sh
 ```
 
-Le script crée `.env` si absent, force `MODE=remote` et `SERVER_NAME=$(hostname -f)`, puis construit et démarre le service `proxy`.
+Le script cree `.env` si absent, force le mode proxy seul et demarre le service.
 
-## 3) Vérifier
+## 4. Verifier
 
 ```bash
 bash scripts/proxy_verify.sh
+curl -sS http://localhost/_health
+curl -k -sS https://localhost/_health
 ```
 
-Attendu: `{ "status": "ok", "mode": "remote" }`.
+Une recherche simple doit renvoyer une reponse GeoJSON :
 
-## 4) Supervision (optionnel)
+```bash
+curl -sS "http://localhost/search/?q=paris&limit=1"
+```
 
-- UI Portainer + Dozzle (facultatif):
-  - `bash scripts/tools_up.sh`
-  - Portainer: `https://<host>:9443`, Dozzle: `http://<host>:9999`
-- Docker context (CLI/Docker Desktop):
-  - `docker context create srv --docker "host=ssh://user@host"`
-  - `docker context use srv && docker ps`
+## 5. Certificats
 
-## 5) Arrêt / nettoyage
+Monter les certificats dans :
+
+- `proxy/certs/tls.crt`
+- `proxy/certs/tls.key`
+
+Ces fichiers sont ignores par Git. Si aucun certificat n'est fourni, un
+certificat auto-signe est genere au demarrage.
+
+## 6. Arret
 
 ```bash
 bash scripts/stack_stop.sh --down
 ```
 
-Notes:
-- Ports 80/443 exposés; un certificat auto‑signé est généré si aucun certificat n’est monté.
-- Éditeurs Windows: éviter les fins de ligne CRLF dans `.env`. Si besoin, corriger: `sed -i 's/\r$//' .env`.
-  - La substitution de variables Nginx est strictement limitée via `NGINX_ENVSUBST_FILTER` pour ne pas altérer les variables Nginx (`$host`, `$request_uri`, etc.).
-
-## 6) Parité vs service officiel (optionnel)
-
-Un script est fourni pour vérifier rapidement la forme des réponses entre votre proxy et l’API officielle.
+## 7. Parite optionnelle
 
 ```bash
 BASE=http://localhost \

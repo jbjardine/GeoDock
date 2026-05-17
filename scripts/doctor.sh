@@ -34,9 +34,13 @@ fi
 check_port(){
   local p="$1"; local busy=0
   if have ss; then
-    ss -ltn | awk '{print $4}' | grep -Eq ":${p}$|:${p}[^0-9]" && busy=1 || true
+    if ss -ltn | awk '{print $4}' | grep -Eq ":${p}$|:${p}[^0-9]"; then
+      busy=1
+    fi
   elif have netstat; then
-    netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq ":${p}$|:${p}[^0-9]" && busy=1 || true
+    if netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq ":${p}$|:${p}[^0-9]"; then
+      busy=1
+    fi
   else
     warn "no ss/netstat; skipping port ${p} check"; return 0
   fi

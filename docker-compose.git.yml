@@ -1,0 +1,24 @@
+services:
+  geocoder-api:
+    build:
+      context: .
+      dockerfile: runtime/Dockerfile.gpf-geocodeur
+      args:
+        GEOCODER_GIT_URL: ${GEOCODER_GIT_URL:-https://github.com/Geoplateforme/gpf-geocodeur.git}
+        GEOCODER_GIT_REF: ${GEOCODER_GIT_REF:-main}
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+
+  geocoder-address:
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+
+  geocoder-parcel:
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+
+  geocoder-poi:
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+
+  local-bootstrap:
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
+
+  local-maintainer:
+    image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}

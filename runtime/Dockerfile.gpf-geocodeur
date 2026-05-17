@@ -1,0 +1,238 @@
+# syntax=docker/dockerfile:1.7
+FROM redis:8.0-bookworm AS redis
+
+FROM python:3.11-slim-bookworm
+
+ARG GEOCODER_GIT_URL=https://github.com/Geoplateforme/gpf-geocodeur.git
+ARG GEOCODER_GIT_REF=main
+
+ENV PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    NODE_ENV=production \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    TMP_PATH=/tmp \
+    DATA_PATH=/data \
+    PORT=3000 \
+    PYTHONPATH=/opt/geodock-builder:/opt/geodock-runtime/scripts
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       -o Dpkg::Options::=--force-confdef \
+       -o Dpkg::Options::=--force-confold \
+       bash \
+       build-essential \
+       ca-certificates \
+       curl \
+       docker.io \
+       gdal-bin \
+       git \
+       libgdal-dev \
+       p7zip-full \
+       wget \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends \
+       -o Dpkg::Options::=--force-confdef \
+       -o Dpkg::Options::=--force-confold \
+       nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=redis /usr/local/bin/redis-server /usr/local/bin/redis-server
+
+RUN corepack enable && corepack prepare yarn@1.22.22 --activate
+
+RUN python -m ensurepip --upgrade \
+    && python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+
+WORKDIR /opt
+
+RUN git clone --depth 1 --branch "${GEOCODER_GIT_REF}" "${GEOCODER_GIT_URL}" geocodeur
+
+WORKDIR /opt/geocodeur
+
+# Patch upstream GeoPlateforme runtime so parcel/BDTOPO URL templates with
+# repeated placeholders are fully expanded for every occurrence.
+RUN python - <<'PY'
+from pathlib import Path
+
+geoservices_path = Path("/opt/geocodeur/lib/geoservices.js")
+text = geoservices_path.read_text()
+needle = """export function getArchiveURL(baseURL, codeDepartement) {
+  if (codeDepartement.length === 2) {
+    return baseURL
+      .replace('{dep}', `D0${codeDepartement}`)
+      .replace('{crs}', 'LAMB93')
+  }
+
+  if (!(codeDepartement in CRS_MAPPING)) {
+    throw new Error('Unknown codeDepartement')
+  }
+
+  return baseURL
+    .replace('{dep}', `D${codeDepartement}`)
+    .replace('{crs}', CRS_MAPPING[codeDepartement])
+}"""
+replacement = """export function getArchiveURL(baseURL, codeDepartement) {
+  if (codeDepartement.length === 2) {
+    return baseURL
+      .replaceAll('{dep}', `D0${codeDepartement}`)
+      .replaceAll('{crs}', 'LAMB93')
+  }
+
+  if (!(codeDepartement in CRS_MAPPING)) {
+    throw new Error('Unknown codeDepartement')
+  }
+
+  return baseURL
+    .replaceAll('{dep}', `D${codeDepartement}`)
+    .replaceAll('{crs}', CRS_MAPPING[codeDepartement])
+}"""
+if needle not in text:
+    raise SystemExit("expected getArchiveURL implementation not found")
+text = text.replace(needle, replacement)
+
+download_retry_needle = """export async function downloadAndExtract(url) {
+  const id = nanoid(6)
+  const basePath = path.join(TMP_PATH, `archive-${id}`)
+  await mkdir(basePath, {recursive: true})
+  const archivePath = path.join(basePath, 'archive.7z')
+
+  await pipeline(
+    got.stream(url),
+    createWriteStream(archivePath)
+  )
+
+  await execa('7z', ['x', archivePath], {cwd: basePath})
+  await rm(archivePath)
+
+  return {
+    basePath,
+
+    getPath(fileName) {
+      return getPath(basePath, fileName)
+    },
+
+    async cleanup() {
+      await rm(basePath, {recursive: true})
+    }
+  }
+}"""
+download_retry_replacement = """const DOWNLOAD_RETRY_LIMIT = Number.parseInt(
+  process.env.GEOCODEUR_DOWNLOAD_RETRY_LIMIT ?? '4',
+  10
+)
+const DOWNLOAD_RETRY_BASE_DELAY_MS = Number.parseInt(
+  process.env.GEOCODEUR_DOWNLOAD_RETRY_BASE_DELAY_MS ?? '5000',
+  10
+)
+const DOWNLOAD_RETRY_CODES = new Set(
+  (process.env.GEOCODEUR_DOWNLOAD_RETRY_CODES ?? 'ECONNRESET,ETIMEDOUT,EPIPE,ECONNREFUSED,ENETUNREACH,EAI_AGAIN')
+    .split(',')
+    .map(code => code.trim())
+    .filter(Boolean)
+)
+
+function isRetriableDownloadError(error) {
+  if (!error) {
+    return false
+  }
+
+  if (error.code && DOWNLOAD_RETRY_CODES.has(error.code)) {
+    return true
+  }
+
+  const message = `${error.message ?? ''} ${error.cause?.message ?? ''}`.toUpperCase()
+  return message.includes('ECONNRESET') || message.includes('SERVER ABORTED PENDING REQUEST')
+}
+
+async function sleep(ms) {
+  await new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function streamToFileWithRetry(url, archivePath) {
+  for (let attempt = 1; attempt <= DOWNLOAD_RETRY_LIMIT; attempt += 1) {
+    try {
+      await rm(archivePath, {force: true})
+      await pipeline(
+        got.stream(url),
+        createWriteStream(archivePath)
+      )
+      return
+    } catch (error) {
+      await rm(archivePath, {force: true})
+      if (attempt === DOWNLOAD_RETRY_LIMIT || !isRetriableDownloadError(error)) {
+        throw error
+      }
+      const delay = DOWNLOAD_RETRY_BASE_DELAY_MS * attempt
+      console.warn(`[download] tentative ${attempt}/${DOWNLOAD_RETRY_LIMIT} en échec pour ${url} (${error.code ?? error.name ?? 'UNKNOWN'}), retry dans ${delay}ms`)
+      await sleep(delay)
+    }
+  }
+}
+
+export async function downloadAndExtract(url) {
+  const id = nanoid(6)
+  const basePath = path.join(TMP_PATH, `archive-${id}`)
+  await mkdir(basePath, {recursive: true})
+  const archivePath = path.join(basePath, 'archive.7z')
+
+  await streamToFileWithRetry(url, archivePath)
+  await execa('7z', ['x', archivePath], {cwd: basePath})
+  await rm(archivePath, {force: true})
+
+  return {
+    basePath,
+
+    getPath(fileName) {
+      return getPath(basePath, fileName)
+    },
+
+    async cleanup() {
+      await rm(basePath, {recursive: true})
+    }
+  }
+}"""
+if download_retry_needle not in text:
+    raise SystemExit("expected downloadAndExtract implementation not found")
+text = text.replace(download_retry_needle, download_retry_replacement)
+geoservices_path.write_text(text)
+
+poi_index_path = Path("/opt/geocodeur/indexes/poi/scripts/build-from-bdtopo/index.js")
+poi_index_text = poi_index_path.read_text()
+poi_index_needle = "  const datasetPath = await bdtopoArchive.getPath('BDT_3-3_GPKG_*.gpkg')\n"
+poi_index_replacement = """  const datasetPath = await bdtopoArchive.getPath('BDT_*_GPKG_*.gpkg')
+  if (!datasetPath) {
+    throw new Error('Fichier GPKG BDTOPO introuvable dans l\\'archive')
+  }
+"""
+if poi_index_needle not in poi_index_text:
+    raise SystemExit("expected POI dataset path lookup not found")
+poi_index_path.write_text(poi_index_text.replace(poi_index_needle, poi_index_replacement))
+PY
+
+RUN node - <<'NODE'
+const fs = require('fs')
+const packagePath = '/opt/geocodeur/package.json'
+const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
+
+if (!packageJson.dependencies || !packageJson.dependencies['gdal-async']) {
+  throw new Error('expected gdal-async dependency not found')
+}
+
+packageJson.dependencies['gdal-async'] = '3.12.3'
+fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
+NODE
+
+RUN python -m pip install --no-cache-dir -r requirements.txt \
+    && python -m pip install --no-cache-dir 'setuptools<81' \
+    && yarn install --production --non-interactive
+
+COPY builder /opt/geodock-builder
+COPY runtime/scripts /opt/geodock-runtime/scripts
+
+RUN find /opt/geodock-runtime/scripts -type f -name '*.sh' -exec sed -i 's/\r$//' {} \; \
+    && find /opt/geodock-runtime/scripts -type f -name '*.sh' -exec chmod +x {} \;
+
+EXPOSE 3000
+
+CMD ["yarn", "api:start"]

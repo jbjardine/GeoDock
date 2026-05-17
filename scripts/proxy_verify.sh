@@ -3,8 +3,17 @@ set -euo pipefail
 
 # Health verification (proxy mode)
 
-BASE_HTTP="http://localhost"
-BASE_HTTPS="https://localhost"
+read_env(){
+  awk -F= -v key="$1" '$1==key{print substr($0, index($0,"=")+1)}' .env 2>/dev/null | tr -d '\r' | tail -n 1
+}
+
+HOST_PORT_HTTP="$(read_env HOST_PORT_HTTP)"
+HOST_PORT_HTTPS="$(read_env HOST_PORT_HTTPS)"
+HOST_PORT_HTTP="${HOST_PORT_HTTP:-80}"
+HOST_PORT_HTTPS="${HOST_PORT_HTTPS:-443}"
+
+BASE_HTTP="http://localhost:${HOST_PORT_HTTP}"
+BASE_HTTPS="https://localhost:${HOST_PORT_HTTPS}"
 
 curl_opts=(--max-time 5 -sS -L)
 
