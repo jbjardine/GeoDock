@@ -15,7 +15,7 @@ rm -rf "$PKG_DIR"
 mkdir -p "$PKG_DIR" "$OUT_DIR"
 
 cp -a docker-compose.yml docker-compose.git.yml docker-compose.proxy.yml "$PKG_DIR/"
-cp -a README.md LICENSE .env.example .env.proxy.example "$PKG_DIR/"
+cp -a README.md CHANGELOG.md LICENSE .env.example .env.proxy.example "$PKG_DIR/"
 
 mkdir -p "$PKG_DIR/proxy" "$PKG_DIR/runtime" "$PKG_DIR/builder" "$PKG_DIR/scripts" "$PKG_DIR/docs/install" "$PKG_DIR/docs/ops" "$PKG_DIR/var/meta" "$PKG_DIR/var/artifacts"
 cp -a proxy/Dockerfile proxy/default.conf.template "$PKG_DIR/proxy/"

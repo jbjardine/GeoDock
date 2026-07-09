@@ -134,15 +134,6 @@ jobs:
         with:
           files: dist/*.tar.gz
           generate_release_notes: true
-          body: |
-            GeoDock ${{ github.ref_name }}
-
-            - First stable public release package.
-            - Unified package: proxy, local runtime, bootstrap, status, and QA scripts.
-            - Modes: proxy, local, hybrid, failback.
-            - Public CI: YAML, shell, Python, Compose, proxy smoke, and release package checks.
-            - GHCR images: geodock-proxy and geodock-runtime.
-            - Long prod-like gate remains documented as an operator-run qualification.
 
   publish-ghcr:
     runs-on: ubuntu-latest
