@@ -4,7 +4,7 @@ FROM redis:8.4-bookworm AS redis
 FROM python:3.11-slim-bookworm
 
 ARG GEOCODER_GIT_URL=https://github.com/Geoplateforme/gpf-geocodeur.git
-ARG GEOCODER_GIT_REF=main
+ARG GEOCODER_GIT_REF=da0f365d4a0bcac5371b4962769abc17bfcd8cef
 
 ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
@@ -46,7 +46,10 @@ RUN python -m ensurepip --upgrade \
 
 WORKDIR /opt
 
-RUN git clone --depth 1 --branch "${GEOCODER_GIT_REF}" "${GEOCODER_GIT_URL}" geocodeur
+RUN git init geocodeur \
+    && git -C geocodeur remote add origin "${GEOCODER_GIT_URL}" \
+    && git -C geocodeur fetch --depth 1 origin "${GEOCODER_GIT_REF}" \
+    && git -C geocodeur checkout --detach FETCH_HEAD
 
 WORKDIR /opt/geocodeur
 

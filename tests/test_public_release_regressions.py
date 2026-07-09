@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -53,8 +54,40 @@ def test_manifest_error_blocks_rebuild() -> None:
     assert_true(source_error is not None and "poi/bdtopo/92" in source_error, "source-level manifest errors must fail fast")
 
 
+def test_runtime_upstream_ref_is_immutable() -> None:
+    dockerfile = (ROOT / "runtime" / "Dockerfile.gpf-geocodeur").read_text()
+    match = re.search(r"^ARG GEOCODER_GIT_REF=([0-9a-f]{40})$", dockerfile, re.MULTILINE)
+
+    assert_true(match is not None, "release images must pin the upstream geocoder to an immutable commit")
+    assert_true(
+        'fetch --depth 1 origin "${GEOCODER_GIT_REF}"' in dockerfile,
+        "the runtime checkout must support the pinned upstream commit",
+    )
+
+
+def test_release_notes_do_not_repeat_first_release_copy() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "proxy-ci.yml").read_text()
+
+    assert_true(
+        "First stable public release" not in workflow,
+        "later releases must not be mislabeled as the first stable release",
+    )
+
+
+def test_release_package_contains_changelog() -> None:
+    release_script = (ROOT / "scripts" / "release_v2.sh").read_text()
+
+    assert_true(
+        "README.md CHANGELOG.md LICENSE" in release_script,
+        "the published release archive must include its changelog",
+    )
+
+
 if __name__ == "__main__":
     test_status_keeps_refresh_state_after_local_ready()
     test_status_reaches_ready_after_initial_local_start()
     test_manifest_error_blocks_rebuild()
+    test_runtime_upstream_ref_is_immutable()
+    test_release_notes_do_not_repeat_first_release_copy()
+    test_release_package_contains_changelog()
     print("ok - public release regression contracts")
