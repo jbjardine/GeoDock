@@ -5,7 +5,7 @@ services:
       dockerfile: runtime/Dockerfile.gpf-geocodeur
       args:
         GEOCODER_GIT_URL: ${GEOCODER_GIT_URL:-https://github.com/Geoplateforme/gpf-geocodeur.git}
-        GEOCODER_GIT_REF: ${GEOCODER_GIT_REF:-main}
+        GEOCODER_GIT_REF: ${GEOCODER_GIT_REF:-da0f365d4a0bcac5371b4962769abc17bfcd8cef}
     image: ${GEODOCK_RUNTIME_IMAGE:-ghcr.io/jbjardine/geodock-runtime:latest}
 
   geocoder-address:
