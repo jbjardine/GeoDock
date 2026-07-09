@@ -56,9 +56,18 @@ def test_manifest_error_blocks_rebuild() -> None:
 
 def test_runtime_upstream_ref_is_immutable() -> None:
     dockerfile = (ROOT / "runtime" / "Dockerfile.gpf-geocodeur").read_text()
-    match = re.search(r"^ARG GEOCODER_GIT_REF=([0-9a-f]{40})$", dockerfile, re.MULTILINE)
+    compose = (ROOT / "docker-compose.git.yml").read_text()
+    environment = (ROOT / ".env.example").read_text()
+    dockerfile_match = re.search(r"^ARG GEOCODER_GIT_REF=([0-9a-f]{40})$", dockerfile, re.MULTILINE)
+    compose_match = re.search(r"GEOCODER_GIT_REF:-([0-9a-f]{40})", compose)
+    environment_match = re.search(r"^GEOCODER_GIT_REF=([0-9a-f]{40})$", environment, re.MULTILINE)
 
-    assert_true(match is not None, "release images must pin the upstream geocoder to an immutable commit")
+    assert_true(
+        all((dockerfile_match, compose_match, environment_match)),
+        "GHCR and fallback runtime builds must pin the upstream geocoder to immutable commits",
+    )
+    refs = {match.group(1) for match in (dockerfile_match, compose_match, environment_match) if match}
+    assert_true(len(refs) == 1, "GHCR and fallback runtime builds must use the same upstream commit")
     assert_true(
         'fetch --depth 1 origin "${GEOCODER_GIT_REF}"' in dockerfile,
         "the runtime checkout must support the pinned upstream commit",
